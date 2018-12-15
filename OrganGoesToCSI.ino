@@ -1,7 +1,10 @@
 #include <Adafruit_NeoPixel.h>
+
 #ifdef _AVR_
 #include <avr/power.h>
 #endif
+
+#include <MIDI.h>
 
 
 /*##########
@@ -39,10 +42,12 @@ int modifierSize  = 10;
 int keys[NUM_KEYS];
 
 // Floats
-float fadeTimer   = 0.0; 
+float fadeTimer   = 0.0;
 
 //Objects
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_NEOPIX, NEOPIX_PIN, NEO_GRB + NEO_KHZ800);
+
+MIDI_CREATE_DEFAULT_INSTANCE();
 
 
 /*##########
@@ -53,25 +58,29 @@ void setup() {
 #if defined (_AVR_ATtiny85_)
   if (F_CPU == 16000000) clock_prescale_set(clock_div_1);
 #endif
+
+  // Init MIDI
+  MIDI.begin(MIDI_CHANNEL_OMNI);  // Listen to all incoming messages
+
   // Init serial
-  Serial.begin(SERIAL_BAUDRATE);
+  //Serial.begin(SERIAL_BAUDRATE);
 
   // Setup organ keys mapping
   setupKeys();
-  
+
   // Init all keys
   for (int i = FIRST_KEY; i < NUM_KEYS; i++) {
     // Set pull-up for each key
     pinMode(keys[i], INPUT_PULLUP);
-    
+
     // Init `keyWasDown` bool array
     keyWasDown[i] = false;
   }
-  
+
   // Init Neopixels
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
-  
+
   // Do a color wipe on the NeoPixles
   colorWipe(strip.Color(0, 0, 0), 50); // Red
 }
@@ -80,13 +89,13 @@ void setup() {
 void loop() {
   // Scan the keys for presses
   allKeys();
-  
+
   /*
   eachKey();
   */
-  
+
   // A timer for fade out light animation (fade out the lights)
-  //NOTE: Check `fadeTimerArmed` first, so we skip math and calls to `millis` if not necessary 
+  //NOTE: Check `fadeTimerArmed` first, so we skip math and calls to `millis` if not necessary
   if (fadeTimerArmed && fadeTimer + fadeTimeout < millis()) {
     darken();
   }
@@ -129,30 +138,35 @@ void allKeys() {
       // Set the brightness of the entire strand to max
       strip.setBrightness(MAX_BRIGHTNESS);
       strip.show();
-      
+
       if (false == keyWasDown[i]) {
         // Write the key pressed to Serial
-        Serial.write(i + ", on;");
+        //Serial.write(i + ", on;");
+
+        MIDI.sendNoteOn(i, 127, 1);
+
         keyWasDown[i] = true;
       }
-      
+
       // Set and arm the fade timer
       fadeTimer       = millis();
       fadeTimerArmed  = true;
-      
+
       // Map `num` for `i` (Do outside the inner loop because it never changes inside it)
       uint32_t num = Wheel((byte)map(i, FIRST_KEY, NUM_KEYS, MIN_BRIGHTNESS, MAX_BRIGHTNESS));
-      
+
       for (uint16_t j = FIRST_NEOPIX; j < NUM_NEOPIX; j++) {
         strip.setPixelColor(j, num);
         strip.show();
       }
-    } 
+    }
     // The key was HIGH (not pressed), check if it was previously
     else if (true == keyWasDown[i]) {
       // Write the key pressed to Serial
-      Serial.write(i + ", off;");
-      
+      //Serial.write(i + ", off;");
+
+      MIDI.sendNoteOff(i, 0, 1);
+
       // Reset the down state
       keyWasDown[i] = false;
     }
@@ -168,7 +182,7 @@ void eachKey() {
       // Set the individual pixel color
       strip.setPixelColor(i, Wheel(modifier));
       strip.show();
-      
+
       // Update the modifier
       //TODO: where is `modifier` reset?
       modifier += modifierSize;
@@ -188,11 +202,11 @@ void darken() {
   for (int j = MAX_BRIGHTNESS; j > MIN_BRIGHTNESS; j--) {
     strip.setBrightness(j);
     strip.show();
-    
+
     // Wait 5ms before going to the next (lower) brightness level
     delay(FADE_DELAY);
   }
-  
+
   // Release the fade timer (disarm)
   fadeTimerArmed = false;
 }
@@ -202,7 +216,7 @@ void colorWipe(uint32_t c, uint8_t wait) {
   for (uint16_t i = FIRST_NEOPIX; i < NUM_NEOPIX; i++) {
     strip.setPixelColor(i, c);
     strip.show();
-    
+
     delay(wait);
   }
 }
@@ -231,18 +245,18 @@ uint8_t getBlueValueFromColor(uint32_t c) {
 // The colours are a transition r - g - b - back to r.
 uint32_t Wheel(byte WheelPos) {
   WheelPos = 255 - WheelPos;
-  
+
   if (WheelPos < 85) {
     return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
   }
-  
+
   if (WheelPos < 170) {
     WheelPos -= 85;
-    
+
     return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
   }
-  
+
   WheelPos -= 170;
-  
+
   return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
 }
